@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 SENDER_EMAIL = "mk4829779@gmail.com"
 DEPARTMENT_EMAIL = "lingammanojkumar178@gmail.com"
+DEFAULT_ALLOWED_ORIGINS = {
+    "https://civicform-12e28.web.app",
+    "https://civicform-12e28.firebaseapp.com",
+}
 MAX_PDF_BYTES = 1024 * 1024
 MAX_PHOTO_BYTES = 640 * 1024
 MAX_PHOTO_BASE64_CHARS = ((MAX_PHOTO_BYTES + 2) // 3) * 4
@@ -37,31 +41,49 @@ class RequestError(Exception):
         self.status_code = status_code
 
 
-def is_local_origin(origin):
+def is_allowed_origin(origin):
     if not origin:
         return True
     try:
         parsed = urlparse(origin)
+        hostname = parsed.hostname
+        parsed.port
     except ValueError:
         return False
-    return parsed.scheme in {"http", "https"} and parsed.hostname in {
-        "localhost",
-        "127.0.0.1",
+    if (
+        parsed.scheme not in {"http", "https"}
+        or hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
+        return False
+    if hostname in {"localhost", "127.0.0.1"}:
+        return True
+
+    allowed_origins = DEFAULT_ALLOWED_ORIGINS | {
+        configured_origin.strip().rstrip("/").lower()
+        for configured_origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
+        if configured_origin.strip()
     }
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}" in allowed_origins
 
 
 @app.before_request
-def reject_non_local_email_origins():
-    if request.path == "/sendComplaintEmail" and not is_local_origin(
+def reject_disallowed_email_origins():
+    if request.path == "/sendComplaintEmail" and not is_allowed_origin(
         request.headers.get("Origin")
     ):
-        return jsonify(error="The local email API only accepts requests from localhost."), 403
+        return jsonify(error="The request origin is not allowed."), 403
 
 
 @app.after_request
 def add_cors_headers(response):
     origin = request.headers.get("Origin")
-    if origin and is_local_origin(origin):
+    if origin and is_allowed_origin(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Vary"] = "Origin"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
