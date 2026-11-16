@@ -66,6 +66,33 @@ class SendComplaintTest(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         send_email.assert_not_called()
 
+    def test_allows_firebase_hosting_preflight(self):
+        origin = "https://civicform-12e28.web.app"
+        response = self.client.options(
+            "/sendComplaintEmail",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers["Access-Control-Allow-Origin"], origin)
+        self.assertIn("POST", response.headers["Access-Control-Allow-Methods"])
+        self.assertEqual(response.headers["Access-Control-Allow-Headers"], "Content-Type")
+
+    def test_allows_configured_custom_hosting_origin(self):
+        origin = "https://civicform.example.com"
+        with patch.dict(os.environ, {"CORS_ALLOWED_ORIGINS": origin}):
+            response = self.client.options(
+                "/sendComplaintEmail",
+                headers={"Origin": origin},
+            )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers["Access-Control-Allow-Origin"], origin)
+
     def test_rejects_invalid_pdf_before_sending(self):
         with patch.object(main, "send_complaint_email") as send_email:
             response = self.client.post(
